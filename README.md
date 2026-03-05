@@ -11,6 +11,7 @@ Simple fake ControlByWeb-style HTTP device, built in Go and containerized with D
 - Keeps state in memory only (no persistence)
 - Includes `GET /config` to view and adjust which datapoints are currently exposed
 - Lets you force response protocol via flags: `--http0.9`, `--http1.0`, `--http1.1`
+- Uses a default `serialNumber` MAC address of `DE:AD:BE:EF:00:01` (override with `--mac`)
 
 Default datapoints:
 
@@ -37,6 +38,12 @@ Run with a forced response protocol (example: HTTP/1.0):
 
 ```bash
 docker run --rm -p 8080:8080 cbw-server --http1.0
+```
+
+Run with a custom MAC address exposed as `serialNumber`:
+
+```bash
+docker run --rm -p 8080:8080 cbw-server --mac DE:AD:BE:EF:CA:FE
 ```
 
 ## Try it
@@ -66,6 +73,10 @@ Use exactly one of these flags to control the protocol used in responses:
 - `--http1.0`
 - `--http0.9`
 
+Use this flag to set the `serialNumber` MAC value:
+
+- `--mac DE:AD:BE:EF:00:01` (default)
+
 Examples:
 
 ```bash
@@ -78,6 +89,9 @@ go run ./src --http1.0
 # HTTP/0.9 style responses (body only)
 go run ./src --http0.9
 curl --http0.9 "http://localhost:8080/state.xml"
+
+# Custom MAC address exposed as serialNumber
+go run ./src --mac DE:AD:BE:EF:CA:FE
 ```
 
 ## Local run (without Docker)

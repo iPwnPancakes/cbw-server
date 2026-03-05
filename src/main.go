@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,12 +36,13 @@ type deviceState struct {
 type responseHTTPVersion string
 
 const (
-	responseHTTP09 responseHTTPVersion = "0.9"
-	responseHTTP10 responseHTTPVersion = "1.0"
-	responseHTTP11 responseHTTPVersion = "1.1"
+	responseHTTP09    responseHTTPVersion = "0.9"
+	responseHTTP10    responseHTTPVersion = "1.0"
+	responseHTTP11    responseHTTPVersion = "1.1"
+	defaultMACAddress                     = "DE:AD:BE:EF:00:01"
 )
 
-func newDeviceState() *deviceState {
+func newDeviceState(serialNumber string) *deviceState {
 	defaults := []datapoint{
 		{Key: "digitalInput1", Value: "0"},
 		{Key: "digitalInput2", Value: "0"},
@@ -54,7 +56,7 @@ func newDeviceState() *deviceState {
 		{Key: "register1", Value: "0"},
 		{Key: "utcTime", Value: "957741231"},
 		{Key: "timezoneOffset", Value: "-21600"},
-		{Key: "serialNumber", Value: "00:0C:C8:07:AA:F2"},
+		{Key: "serialNumber", Value: serialNumber},
 		{Key: "minRecRefresh", Value: "3"},
 	}
 
@@ -379,10 +381,11 @@ func methodNotAllowed(w http.ResponseWriter, method string) {
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
-func parseResponseHTTPVersionFlags() (responseHTTPVersion, error) {
+func parseRuntimeFlags() (responseHTTPVersion, string, error) {
 	forceHTTP09 := flag.Bool("http0.9", false, "serve body-only HTTP/0.9 style responses")
 	forceHTTP10 := flag.Bool("http1.0", false, "serve HTTP/1.0 status line and headers")
 	forceHTTP11 := flag.Bool("http1.1", false, "serve HTTP/1.1 status line and headers (default)")
+	macAddress := flag.String("mac", defaultMACAddress, "serialNumber MAC address exposed by /state.*")
 	flag.Parse()
 
 	version := responseHTTP11
@@ -404,10 +407,28 @@ func parseResponseHTTPVersionFlags() (responseHTTPVersion, error) {
 	}
 
 	if selected > 1 {
-		return "", fmt.Errorf("flags --http0.9, --http1.0, and --http1.1 are mutually exclusive")
+		return "", "", fmt.Errorf("flags --http0.9, --http1.0, and --http1.1 are mutually exclusive")
 	}
 
-	return version, nil
+	normalizedMAC, err := normalizeMACAddress(*macAddress)
+	if err != nil {
+		return "", "", err
+	}
+
+	return version, normalizedMAC, nil
+}
+
+func normalizeMACAddress(raw string) (string, error) {
+	parsedMAC, err := net.ParseMAC(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("invalid --mac value %q: %w", raw, err)
+	}
+
+	if len(parsedMAC) != 6 {
+		return "", fmt.Errorf("invalid --mac value %q: expected 6-byte MAC address", raw)
+	}
+
+	return strings.ToUpper(parsedMAC.String()), nil
 }
 
 func withForcedResponseVersion(version responseHTTPVersion, next http.Handler) http.Handler {
@@ -531,7 +552,12 @@ func forceHTTP09Responses(next http.Handler) http.Handler {
 }
 
 func main() {
-	state := newDeviceState()
+	responseVersion, macAddress, err := parseRuntimeFlags()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	state := newDeviceState(macAddress)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", rootHandler)
@@ -544,15 +570,10 @@ func main() {
 		port = "8080"
 	}
 
-	responseVersion, err := parseResponseHTTPVersionFlags()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	handler := withForcedResponseVersion(responseVersion, mux)
 
 	addr := ":" + port
-	log.Printf("cbw-server listening on %s (responses as HTTP/%s)", addr, responseVersion)
+	log.Printf("cbw-server listening on %s (responses as HTTP/%s, serialNumber=%s)", addr, responseVersion, macAddress)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
