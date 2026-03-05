@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"regexp"
@@ -28,6 +31,14 @@ type deviceState struct {
 	exposed      map[string]struct{}
 	exposedOrder []string
 }
+
+type responseHTTPVersion string
+
+const (
+	responseHTTP09 responseHTTPVersion = "0.9"
+	responseHTTP10 responseHTTPVersion = "1.0"
+	responseHTTP11 responseHTTPVersion = "1.1"
+)
 
 func newDeviceState() *deviceState {
 	defaults := []datapoint{
@@ -368,6 +379,157 @@ func methodNotAllowed(w http.ResponseWriter, method string) {
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
+func parseResponseHTTPVersionFlags() (responseHTTPVersion, error) {
+	forceHTTP09 := flag.Bool("http0.9", false, "serve body-only HTTP/0.9 style responses")
+	forceHTTP10 := flag.Bool("http1.0", false, "serve HTTP/1.0 status line and headers")
+	forceHTTP11 := flag.Bool("http1.1", false, "serve HTTP/1.1 status line and headers (default)")
+	flag.Parse()
+
+	version := responseHTTP11
+	selected := 0
+
+	if *forceHTTP09 {
+		version = responseHTTP09
+		selected++
+	}
+
+	if *forceHTTP10 {
+		version = responseHTTP10
+		selected++
+	}
+
+	if *forceHTTP11 {
+		version = responseHTTP11
+		selected++
+	}
+
+	if selected > 1 {
+		return "", fmt.Errorf("flags --http0.9, --http1.0, and --http1.1 are mutually exclusive")
+	}
+
+	return version, nil
+}
+
+func withForcedResponseVersion(version responseHTTPVersion, next http.Handler) http.Handler {
+	switch version {
+	case responseHTTP09:
+		return forceHTTP09Responses(next)
+	case responseHTTP10:
+		return forceHTTP10Responses(next)
+	case responseHTTP11:
+		return next
+	default:
+		return next
+	}
+}
+
+func forceHTTP10Responses(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder := httptest.NewRecorder()
+		next.ServeHTTP(recorder, r)
+
+		result := recorder.Result()
+		defer result.Body.Close()
+
+		body, err := io.ReadAll(result.Body)
+		if err != nil {
+			log.Printf("failed to build HTTP/1.0 body: %v", err)
+			return
+		}
+
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "server does not support hijacking", http.StatusInternalServerError)
+			return
+		}
+
+		conn, rw, err := hijacker.Hijack()
+		if err != nil {
+			log.Printf("failed to hijack connection: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		headers := result.Header.Clone()
+		headers.Del("Transfer-Encoding")
+		headers.Set("Connection", "close")
+		if headers.Get("Content-Length") == "" {
+			headers.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		}
+
+		statusText := http.StatusText(result.StatusCode)
+		if statusText == "" {
+			statusText = "status"
+		}
+
+		if _, err := rw.WriteString(fmt.Sprintf("HTTP/1.0 %d %s\r\n", result.StatusCode, statusText)); err != nil {
+			log.Printf("failed to write HTTP/1.0 status line: %v", err)
+			return
+		}
+
+		for key, values := range headers {
+			for _, value := range values {
+				if _, err := rw.WriteString(fmt.Sprintf("%s: %s\r\n", key, value)); err != nil {
+					log.Printf("failed to write HTTP/1.0 header: %v", err)
+					return
+				}
+			}
+		}
+
+		if _, err := rw.WriteString("\r\n"); err != nil {
+			log.Printf("failed to finish HTTP/1.0 headers: %v", err)
+			return
+		}
+
+		if _, err := rw.Write(body); err != nil {
+			log.Printf("failed to write HTTP/1.0 response: %v", err)
+			return
+		}
+
+		if err := rw.Flush(); err != nil {
+			log.Printf("failed to flush HTTP/1.0 response: %v", err)
+		}
+	})
+}
+
+func forceHTTP09Responses(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder := httptest.NewRecorder()
+		next.ServeHTTP(recorder, r)
+
+		result := recorder.Result()
+		defer result.Body.Close()
+
+		body, err := io.ReadAll(result.Body)
+		if err != nil {
+			log.Printf("failed to build HTTP/0.9 body: %v", err)
+			return
+		}
+
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "server does not support hijacking", http.StatusInternalServerError)
+			return
+		}
+
+		conn, rw, err := hijacker.Hijack()
+		if err != nil {
+			log.Printf("failed to hijack connection: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		if _, err := rw.Write(body); err != nil {
+			log.Printf("failed to write HTTP/0.9 response: %v", err)
+			return
+		}
+
+		if err := rw.Flush(); err != nil {
+			log.Printf("failed to flush HTTP/0.9 response: %v", err)
+		}
+	})
+}
+
 func main() {
 	state := newDeviceState()
 
@@ -382,9 +544,16 @@ func main() {
 		port = "8080"
 	}
 
+	responseVersion, err := parseResponseHTTPVersionFlags()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	handler := withForcedResponseVersion(responseVersion, mux)
+
 	addr := ":" + port
-	log.Printf("cbw-server listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	log.Printf("cbw-server listening on %s (responses as HTTP/%s)", addr, responseVersion)
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
 }

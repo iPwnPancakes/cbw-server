@@ -10,6 +10,7 @@ Simple fake ControlByWeb-style HTTP device, built in Go and containerized with D
 - Returns device-like XML/JSON payloads with string values
 - Keeps state in memory only (no persistence)
 - Includes `GET /config` to view and adjust which datapoints are currently exposed
+- Lets you force response protocol via flags: `--http0.9`, `--http1.0`, `--http1.1`
 
 Default datapoints:
 
@@ -32,6 +33,12 @@ Run:
 docker run --rm -p 8080:8080 cbw-server
 ```
 
+Run with a forced response protocol (example: HTTP/1.0):
+
+```bash
+docker run --rm -p 8080:8080 cbw-server --http1.0
+```
+
 ## Try it
 
 ```bash
@@ -49,6 +56,28 @@ curl "http://localhost:8080/config?remove=relay4"
 curl "http://localhost:8080/config?add=relay4"
 curl "http://localhost:8080/config?set=vin,utcTime,serialNumber"
 curl "http://localhost:8080/config?reset=1"
+```
+
+## Response protocol mode
+
+Use exactly one of these flags to control the protocol used in responses:
+
+- `--http1.1` (default if no protocol flag is set)
+- `--http1.0`
+- `--http0.9`
+
+Examples:
+
+```bash
+# HTTP/1.1 responses (default)
+go run ./src --http1.1
+
+# HTTP/1.0 responses
+go run ./src --http1.0
+
+# HTTP/0.9 style responses (body only)
+go run ./src --http0.9
+curl --http0.9 "http://localhost:8080/state.xml"
 ```
 
 ## Local run (without Docker)
