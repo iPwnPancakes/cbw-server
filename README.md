@@ -1,4 +1,4 @@
-# fake-cbw-device
+# cbw-server
 
 Simple fake ControlByWeb-style HTTP device, built in Go and containerized with Docker.
 
@@ -15,7 +15,7 @@ Default datapoints:
 
 - `digitalInput1`, `digitalInput2`, `digitalInput3`, `digitalInput4`
 - `relay1`, `relay2`, `relay3`, `relay4`
-- `vin`, `register1`, `lat`, `long`
+- `vin`, `register1`
 - `utcTime`, `timezoneOffset`, `serialNumber`, `minRecRefresh`
 
 ## Run with Docker
@@ -23,13 +23,13 @@ Default datapoints:
 Build:
 
 ```bash
-docker build -t fake-cbw-device .
+docker build -t cbw-server .
 ```
 
 Run:
 
 ```bash
-docker run --rm -p 8080:8080 fake-cbw-device
+docker run --rm -p 8080:8080 cbw-server
 ```
 
 ## Try it
@@ -54,5 +54,5 @@ curl "http://localhost:8080/config?reset=1"
 ## Local run (without Docker)
 
 ```bash
-go run ./main.go
+cd src && go run .
 ```

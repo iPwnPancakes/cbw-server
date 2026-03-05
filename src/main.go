@@ -41,8 +41,6 @@ func newDeviceState() *deviceState {
 		{Key: "relay4", Value: "0"},
 		{Key: "vin", Value: "30.5"},
 		{Key: "register1", Value: "0"},
-		{Key: "lat", Value: "41.6796"},
-		{Key: "long", Value: "-111.8737"},
 		{Key: "utcTime", Value: "957741231"},
 		{Key: "timezoneOffset", Value: "-21600"},
 		{Key: "serialNumber", Value: "00:0C:C8:07:AA:F2"},
@@ -267,7 +265,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(
-		"fake-cbw-device\n" +
+		"cbw-server\n" +
 			"\n" +
 			"GET /state.xml\n" +
 			"GET /state.json\n" +
@@ -385,7 +383,7 @@ func main() {
 	}
 
 	addr := ":" + port
-	log.Printf("fake-cbw-device listening on %s", addr)
+	log.Printf("cbw-server listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}
