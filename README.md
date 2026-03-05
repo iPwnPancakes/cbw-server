@@ -12,6 +12,7 @@ Simple fake ControlByWeb-style HTTP device, built in Go and containerized with D
 - Includes `GET /config` to view and adjust which datapoints are currently exposed
 - Lets you force response protocol via flags: `--http0.9`, `--http1.0`, `--http1.1`
 - Uses a default `serialNumber` MAC address of `DE:AD:BE:EF:00:01` (override with `--mac`)
+- Can require HTTP Basic auth with `--basic-auth username:password`
 
 Default datapoints:
 
@@ -47,6 +48,12 @@ Run with a custom MAC address exposed as `serialNumber`:
 docker run --rm -p 8080:8080 cbw-server --mac DE:AD:BE:EF:CA:FE
 ```
 
+Run with HTTP Basic auth enabled:
+
+```bash
+docker run --rm -p 8080:8080 cbw-server --basic-auth admin:secret
+```
+
 ## Try it
 
 ```bash
@@ -54,6 +61,9 @@ curl "http://localhost:8080/state.xml"
 curl "http://localhost:8080/state.json"
 curl "http://localhost:8080/state.xml?register1=123"
 curl "http://localhost:8080/state.json?relay1=1&vin=12.3"
+
+# when --basic-auth is set
+curl -u admin:secret "http://localhost:8080/state.xml"
 ```
 
 Config endpoint examples:
@@ -78,6 +88,10 @@ Use this flag to set the `serialNumber` MAC value:
 
 - `--mac DE:AD:BE:EF:00:01` (default)
 
+Use this flag to require credentials:
+
+- `--basic-auth username:password`
+
 Examples:
 
 ```bash
@@ -93,6 +107,9 @@ curl --http0.9 "http://localhost:8080/state.xml"
 
 # Custom MAC address exposed as serialNumber
 go run ./src --mac DE:AD:BE:EF:CA:FE
+
+# Require HTTP Basic auth
+go run ./src --basic-auth admin:secret
 ```
 
 ## Local run (without Docker)

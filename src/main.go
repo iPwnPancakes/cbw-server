@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"encoding/xml"
 	"flag"
@@ -34,6 +35,11 @@ type deviceState struct {
 }
 
 type responseHTTPVersion string
+
+type basicAuthCredentials struct {
+	username string
+	password string
+}
 
 const (
 	responseHTTP09    responseHTTPVersion = "0.9"
@@ -385,11 +391,12 @@ func methodNotAllowed(w http.ResponseWriter, method string) {
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
-func parseRuntimeFlags() (responseHTTPVersion, string, error) {
+func parseRuntimeFlags() (responseHTTPVersion, string, *basicAuthCredentials, error) {
 	forceHTTP09 := flag.Bool("http0.9", false, "serve body-only HTTP/0.9 style responses")
 	forceHTTP10 := flag.Bool("http1.0", false, "serve HTTP/1.0 status line and headers")
 	forceHTTP11 := flag.Bool("http1.1", false, "serve HTTP/1.1 status line and headers (default)")
 	macAddress := flag.String("mac", defaultMACAddress, "serialNumber MAC address exposed by /state.*")
+	basicAuth := flag.String("basic-auth", "", "require HTTP Basic auth with username:password")
 	flag.Parse()
 
 	version := responseHTTP11
@@ -411,15 +418,20 @@ func parseRuntimeFlags() (responseHTTPVersion, string, error) {
 	}
 
 	if selected > 1 {
-		return "", "", fmt.Errorf("flags --http0.9, --http1.0, and --http1.1 are mutually exclusive")
+		return "", "", nil, fmt.Errorf("flags --http0.9, --http1.0, and --http1.1 are mutually exclusive")
 	}
 
 	normalizedMAC, err := normalizeMACAddress(*macAddress)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 
-	return version, normalizedMAC, nil
+	authCredentials, err := parseBasicAuthCredentials(*basicAuth)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	return version, normalizedMAC, authCredentials, nil
 }
 
 func normalizeMACAddress(raw string) (string, error) {
@@ -435,6 +447,24 @@ func normalizeMACAddress(raw string) (string, error) {
 	return strings.ToUpper(parsedMAC.String()), nil
 }
 
+func parseBasicAuthCredentials(raw string) (*basicAuthCredentials, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	username, password, ok := strings.Cut(trimmed, ":")
+	if !ok {
+		return nil, fmt.Errorf("invalid --basic-auth value %q: expected username:password", raw)
+	}
+
+	if username == "" || password == "" {
+		return nil, fmt.Errorf("invalid --basic-auth value %q: username and password are required", raw)
+	}
+
+	return &basicAuthCredentials{username: username, password: password}, nil
+}
+
 func withForcedResponseVersion(version responseHTTPVersion, next http.Handler) http.Handler {
 	switch version {
 	case responseHTTP09:
@@ -446,6 +476,37 @@ func withForcedResponseVersion(version responseHTTPVersion, next http.Handler) h
 	default:
 		return next
 	}
+}
+
+func withBasicAuth(credentials *basicAuthCredentials, next http.Handler) http.Handler {
+	if credentials == nil {
+		return next
+	}
+
+	realmHeader := `Basic realm="cbw-server"`
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok || !credentials.matches(username, password) {
+			w.Header().Set("WWW-Authenticate", realmHeader)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (c *basicAuthCredentials) matches(username string, password string) bool {
+	return secureStringEqual(c.username, username) && secureStringEqual(c.password, password)
+}
+
+func secureStringEqual(expected string, actual string) bool {
+	if len(expected) != len(actual) {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) == 1
 }
 
 func forceHTTP10Responses(next http.Handler) http.Handler {
@@ -556,7 +617,7 @@ func forceHTTP09Responses(next http.Handler) http.Handler {
 }
 
 func main() {
-	responseVersion, macAddress, err := parseRuntimeFlags()
+	responseVersion, macAddress, authCredentials, err := parseRuntimeFlags()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -574,10 +635,15 @@ func main() {
 		port = "8080"
 	}
 
-	handler := withForcedResponseVersion(responseVersion, mux)
+	handler := withBasicAuth(authCredentials, mux)
+	handler = withForcedResponseVersion(responseVersion, handler)
 
 	addr := ":" + port
-	log.Printf("cbw-server listening on %s (responses as HTTP/%s, serialNumber=%s)", addr, responseVersion, macAddress)
+	if authCredentials != nil {
+		log.Printf("cbw-server listening on %s (responses as HTTP/%s, serialNumber=%s, basicAuthUser=%s)", addr, responseVersion, macAddress, authCredentials.username)
+	} else {
+		log.Printf("cbw-server listening on %s (responses as HTTP/%s, serialNumber=%s)", addr, responseVersion, macAddress)
+	}
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
