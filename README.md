@@ -17,6 +17,7 @@ Default datapoints:
 
 - `digitalInput1`, `digitalInput2`, `digitalInput3`, `digitalInput4`
 - `relay1`, `relay2`, `relay3`, `relay4`
+- `analogInput1`, `analogInput2`, `analogInput3`, `analogInput4`
 - `vin`, `register1`
 - `utcTime`, `timezoneOffset`, `serialNumber`, `minRecRefresh`
 
