@@ -19,7 +19,7 @@ Default datapoints:
 - `digitalInput1`, `digitalInput2`, `digitalInput3`, `digitalInput4`
 - `relay1`, `relay2`, `relay3`, `relay4`
 - `analogInput1`, `analogInput2`, `analogInput3`, `analogInput4`
-- `vin`, `register1`
+- `vin`, `register1`, `register2`, `register3`, `register4`, `register5`
 - `utcTime`, `timezoneOffset`, `serialNumber`, `minRecRefresh`
 
 ## Run with Docker
@@ -59,7 +59,7 @@ docker run --rm -p 8080:8080 cbw-server --basic-auth admin:secret
 ```bash
 curl "http://localhost:8080/state.xml"
 curl "http://localhost:8080/state.json"
-curl "http://localhost:8080/state.xml?register1=123"
+curl "http://localhost:8080/state.xml?register2=x.x&register5=123.4"
 curl "http://localhost:8080/state.json?relay1=1&vin=12.3"
 
 # when --basic-auth is set
